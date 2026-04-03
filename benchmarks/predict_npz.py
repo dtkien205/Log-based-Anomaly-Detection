@@ -64,15 +64,15 @@ def main():
     })
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(output_path, index=False)
+    # result.to_csv(output_path, index=False)
 
     print(f"Samples  : {len(result)}")
     print(f"Anomaly  : {(result['pred'] == 1).sum()}")
     print(f"Normal   : {(result['pred'] == 0).sum()}")
-    print(f"Saved to : {output_path}")
+    # print(f"Saved to : {output_path}")
 
     if y_true is not None:
-        print(f"Accuracy : {accuracy_score(y_true, y_pred):.6f}")
+        print(f"\nAccuracy : {accuracy_score(y_true, y_pred):.6f}")
         print(f"Precision: {precision_score(y_true, y_pred, zero_division=0):.6f}")
         print(f"Recall   : {recall_score(y_true, y_pred, zero_division=0):.6f}")
         print(f"F1       : {f1_score(y_true, y_pred, zero_division=0):.6f}")

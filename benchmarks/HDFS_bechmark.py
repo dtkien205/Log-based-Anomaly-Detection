@@ -10,8 +10,9 @@ ROOT_DIR = BASE_DIR.parent
 OUTPUT_DIR = ROOT_DIR / 'output'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-run_models = ['PCA', 'InvariantsMiner', 'LogClustering', 'IsolationForest', 'LR', 'SVM', 'DecisionTree']
-struct_log = '../data/HDFS/HDFS.npz' # The benchmark dataset
+# run_models = ['PCA', 'InvariantsMiner', 'LogClustering', 'IsolationForest', 'LR', 'SVM', 'DecisionTree']
+run_models = ['DecisionTree']
+struct_log = '../data/HDFS/preprocessed/'
 
 if __name__ == '__main__':
     (x_tr, y_train), (x_te, y_test) = dataloader.load_HDFS(struct_log,

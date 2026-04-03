@@ -7,19 +7,17 @@ import pickle
 import numpy as np
 import pandas as pd
 
-# =========================
-# PATHS
-# =========================
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# INPUT_FILE = ROOT / "data" / "HDFS" / "HDFS_100k.log_structured.csv"
-INPUT_FILE = ROOT / "data" / "HDFS" / "HDFS_115k.npz"
+INPUT_FILE = ROOT / "data" / "HDFS" / "HDFS_100k.log_structured.csv"
+# INPUT_FILE = ROOT / "data" / "HDFS" / "HDFS_115k.npz"
 
 MODEL_FILE = ROOT / "output" / "DecisionTree" / "DecisionTree.pkl"
 ALT_MODEL_FILE = ROOT / "output" / "DecisionTree" / "model_DecisionTree.pkl"
 OUTPUT_FILE = ROOT / "benchmarks" / "prediction_result.csv"
+LABEL_FILE = ROOT / "data" / "HDFS" / "anomaly_label.csv"
 SCORE_THRESHOLD = 0.5
 
 
@@ -92,39 +90,58 @@ def load_csv(path: Path):
         return load_structured_csv(path)
     if cols.intersection({"Sequence", "sequence", "EventSequence", "x_data", "events"}):
         return load_sequence_csv(path)
-    raise ValueError("CSV không đúng định dạng hỗ trợ.")
+
+
+def load_block_ids_from_label(path: Path, expected_len: int):
+    if not path.exists():
+        print(f"[WARN] Label file not found: {path}")
+        return None
+    df_label = pd.read_csv(path)
+    if "BlockId" not in df_label.columns:
+        print(f"[WARN] 'BlockId' column not found in label file: {path}")
+        return None
+    block_ids = df_label["BlockId"].astype(str).tolist()
+    if len(block_ids) < expected_len:
+        print(f"[WARN] Label file too short: {len(block_ids)} < {expected_len}. Fallback to sample_xxx.")
+        return None
+    if len(block_ids) > expected_len:
+        print(
+            f"[INFO] Label file longer than x_data ({len(block_ids)} > {expected_len}). "
+            f"Using first {expected_len} BlockId values."
+        )
+    return block_ids[:expected_len]
 
 
 def load_npz(path: Path):
     data = np.load(path, allow_pickle=True)
-    if "x_data" not in data.files:
-        raise ValueError(f"NPZ không có x_data. Keys: {list(data.files)}")
 
     seqs = [parse_seq(x) for x in data["x_data"]]
-    block_ids = [str(x) for x in data["block_ids"]] if "block_ids" in data.files else [
-        f"sample_{i:06d}" for i in range(len(seqs))
-    ]
+    if "block_ids" in data.files:
+        block_ids = [str(x) for x in data["block_ids"]]
+        print("[INFO] BlockId source: npz['block_ids']")
+    else:
+        block_ids = load_block_ids_from_label(LABEL_FILE, len(seqs))
+        if block_ids is not None:
+            print(f"[INFO] BlockId source: {LABEL_FILE}")
+        else:
+            block_ids = [f"sample_{i:06d}" for i in range(len(seqs))]
+            print("[WARN] BlockId source fallback: sample_xxx")
 
     df = pd.DataFrame({"BlockId": block_ids, "Sequence": seqs})
     return df, block_ids, seqs, "npz"
 
 
 def load_input(path: Path):
-    if not path.exists():
-        raise FileNotFoundError(f"Không tìm thấy input file: {path}")
     if path.suffix.lower() == ".csv":
         return load_csv(path)
     if path.suffix.lower() == ".npz":
         return load_npz(path)
-    raise ValueError(f"Chỉ hỗ trợ .csv hoặc .npz, nhận được: {path.suffix}")
-
 
 # =========================
 # FEATURE + PREDICT
 # =========================
 def get_classifier(model):
     return getattr(model, "classifier", model)
-
 
 def build_features(seqs, fe):
     X = fe.transform(np.array(seqs, dtype=object))
@@ -155,43 +172,20 @@ def predict(model, X, threshold=0.5):
 # =========================
 def main():
     model_path = resolve_model_path()
-
-    print("ROOT        :", ROOT)
-    print("INPUT_FILE  :", INPUT_FILE)
-    print("MODEL_FILE  :", model_path)
-    print("OUTPUT_FILE :", OUTPUT_FILE)
-
     bundle = load_bundle(model_path)
     model = bundle["model"]
     fe = bundle["feature_extractor"]
 
     model_name = str(bundle.get("model_name", "")).lower()
-    if model_name and model_name != "decisiontree":
-        raise ValueError(f"Artifact không phải DecisionTree: {bundle.get('model_name')}")
 
     clf = get_classifier(model)
 
-    print("\n===== MODEL INFO =====")
-    print("Loaded model       :", bundle.get("model_name", "Unknown"))
-    print("Classifier type    :", type(clf).__name__)
-    print("Number of features :", getattr(clf, "n_features_in_", "Unknown"))
-    print("Event vocabulary   :", list(fe.events))
-    print("Term weighting     :", getattr(fe, "term_weighting", None))
-    print("Normalization      :", getattr(fe, "normalization", None))
-    print("Use OOV feature    :", getattr(fe, "oov", None))
-
     df_raw, block_ids, seqs, source_type = load_input(INPUT_FILE)
-
-    print("\n===== INPUT INFO =====")
-    print("Source type     :", source_type)
+    print("\n===== RESULT PREVIEW =====")
     print("Num samples     :", len(block_ids))
-    print("First BlockId   :", block_ids[0] if block_ids else "N/A")
-    print("First sequence  :", seqs[0][:20] if seqs else [])
 
     X, diag = build_features(seqs, fe)
 
-    print("\n===== FEATURE INFO =====")
-    print("X shape         :", X.shape)
     print("Unknown events  :", int(diag["unknown_event_count"].sum()))
 
     y_pred, y_score = predict(model, X, SCORE_THRESHOLD)
@@ -205,11 +199,9 @@ def main():
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(OUTPUT_FILE, index=False)
 
-    print("\n===== RESULT PREVIEW =====")
-    print(result.head(20).to_string(index=False))
-    print("\nAnomaly count:", int((result["pred"] == 1).sum()))
+    print("Anomaly count:", int((result["pred"] == 1).sum()))
     print("Normal count :", int((result["pred"] == 0).sum()))
-    print("\nSaved to:", OUTPUT_FILE)
+    print("Saved to:", OUTPUT_FILE)
 
 
 if __name__ == "__main__":
