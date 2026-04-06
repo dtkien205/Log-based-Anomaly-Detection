@@ -1,1 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+
+# Environments
+.env
 .venv/
+env/
+venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Project specifics (Data and Models)
+data/
+output/
+*.npz
+*.pkl
+*.csv
