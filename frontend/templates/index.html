@@ -254,15 +254,29 @@
 </head>
 <body>
 
-<header>
+<header 
+  style="
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    padding: 16px 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  "
+>
   <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
     <rect width="36" height="36" rx="9" fill="#6366f1"/>
-    <path d="M10 18h16M10 12h10M10 24h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M10 18h16M10 12h10M10 24h12"
+          stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
     <circle cx="27" cy="12" r="3" fill="#f87171"/>
   </svg>
+
   <div>
-    <h1>Log Anomaly Detection</h1>
-    <p>Phát hiện bất thường trong log hệ thống bằng Machine Learning</p>
+    <h1 style="margin:0; color:white;">Log Anomaly Detection</h1>
+    <p style="margin:0; color:#94a3b8;">
+      Phát hiện bất thường trong log hệ thống bằng Machine Learning
+    </p>
   </div>
 </header>
 
@@ -309,7 +323,7 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <h3>Kết quả phân tích</h3>
           <span class="badge badge-anom" id="anom-badge" style="display:none"></span>
-          <span class="badge badge-trunc" id="trunc-badge" style="display:none">Hiển thị 2 000 hàng đầu</span>
+          <span class="badge badge-trunc" id="trunc-badge" style="display:none">Hiển thị 2000 hàng đầu</span>
         </div>
         <div class="filter-btns">
           <button class="filter-btn active" data-filter="all">Tất cả</button>

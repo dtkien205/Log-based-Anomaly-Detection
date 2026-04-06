@@ -6,6 +6,8 @@ from flask import Flask, jsonify, render_template, request
 import numpy as np
 import pandas as pd
 
+import os
+
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = ROOT / "benchmarks"
 
