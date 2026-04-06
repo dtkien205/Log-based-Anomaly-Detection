@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log Anomaly Detection</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #21262d;
+      --border:      #30363d;
+      --accent:      #6366f1;
+      --accent-dark: #4f46e5;
+      --text:        #e6edf3;
+      --muted:       #8b949e;
+      --anomaly-bg:  rgba(239, 68, 68, 0.12);
+      --anomaly-fg:  #f87171;
+      --normal-fg:   #4ade80;
+      --card-total:  #6366f1;
+      --card-anom:   #ef4444;
+      --card-norm:   #22c55e;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ─── HEADER ─────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header svg { flex-shrink: 0; }
+    header h1  { font-size: 1.3rem; font-weight: 700; letter-spacing: .02em; }
+    header p   { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+
+    /* ─── MAIN LAYOUT ─────────────────────────── */
+    main {
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+    }
+
+    /* ─── UPLOAD CARD ─────────────────────────── */
+    .upload-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 36px 32px;
+    }
+    .upload-card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 20px; }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 42px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, .06);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    .drop-zone .icon { font-size: 2.6rem; margin-bottom: 10px; }
+    .drop-zone p   { color: var(--muted); font-size: .9rem; }
+    .drop-zone p span { color: var(--accent); font-weight: 600; }
+    #file-name {
+      margin-top: 12px;
+      font-size: .88rem;
+      color: var(--accent);
+      min-height: 1.3em;
+      word-break: break-all;
+    }
+
+    .detect-btn {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .03em;
+      transition: opacity .2s, transform .1s;
+    }
+    .detect-btn:hover   { opacity: .9; }
+    .detect-btn:active  { transform: scale(.98); }
+    .detect-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── ERROR BANNER ────────────────────────── */
+    .error-banner {
+      margin-top: 20px;
+      background: rgba(239,68,68,.12);
+      border: 1px solid rgba(239,68,68,.4);
+      border-radius: 8px;
+      padding: 14px 18px;
+      color: #f87171;
+      font-size: .9rem;
+      display: none;
+    }
+
+    /* ─── RESULTS ─────────────────────────────── */
+    #results { margin-top: 36px; display: none; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 20px;
+      text-align: center;
+      border-top: 3px solid;
+    }
+    .stat-card.total  { border-top-color: var(--card-total); }
+    .stat-card.anom   { border-top-color: var(--card-anom);  }
+    .stat-card.norm   { border-top-color: var(--card-norm);  }
+    .stat-card .num   { font-size: 2rem; font-weight: 700; }
+    .stat-card.total .num { color: var(--card-total); }
+    .stat-card.anom  .num { color: var(--card-anom);  }
+    .stat-card.norm  .num { color: var(--card-norm);  }
+    .stat-card .label { font-size: .82rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+    /* table wrapper */
+    .table-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .table-header h3 { font-size: .95rem; font-weight: 600; }
+    .badge {
+      font-size: .75rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    .badge-anom { background: rgba(239,68,68,.15); color: var(--anomaly-fg); }
+    .badge-trunc { background: rgba(99,102,241,.15); color: #a5b4fc; }
+
+    /* filter buttons */
+    .filter-btns { display: flex; gap: 8px; }
+    .filter-btn {
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      font-size: .8rem;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn.active {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(99,102,241,.1);
+    }
+
+    .table-scroll { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    thead th {
+      background: var(--surface2);
+      padding: 11px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: .8rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody td { padding: 10px 14px; }
+
+    /* anomaly row highlight */
+    tbody tr.anomaly {
+      background: var(--anomaly-bg);
+    }
+    tbody tr.anomaly:hover { background: rgba(239,68,68,.18); }
+    tbody tr.anomaly .label-badge { color: var(--anomaly-fg); font-weight: 700; }
+    tbody tr.normal  .label-badge { color: var(--normal-fg);  }
+
+    .row-num { color: var(--muted); font-size: .82rem; }
+    .score   { font-variant-numeric: tabular-nums; }
+    .score.high { color: var(--anomaly-fg); }
+
+    /* empty state */
+    .empty { padding: 40px; text-align: center; color: var(--muted); font-size: .9rem; }
+
+    /* responsive */
+    @media (max-width: 600px) {
+      header { padding: 14px 18px; }
+      main   { margin-top: 24px; padding: 0 14px 40px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .stat-card.norm { grid-column: span 2; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="9" fill="#6366f1"/>
+    <path d="M10 18h16M10 12h10M10 24h12" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="27" cy="12" r="3" fill="#f87171"/>
+  </svg>
+  <div>
+    <h1>Log Anomaly Detection</h1>
+    <p>Phát hiện bất thường trong log hệ thống bằng Machine Learning</p>
+  </div>
+</header>
+
+<main>
+  <!-- Upload card -->
+  <div class="upload-card">
+    <h2>📂 Tải lên file log để phân tích</h2>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".csv,.npz" />
+      <div class="icon">📄</div>
+      <p>Kéo thả file vào đây hoặc <span>chọn file</span></p>
+      <p style="margin-top:6px;font-size:.8rem;">Hỗ trợ: <strong>.csv</strong> (structured / sequence) &amp; <strong>.npz</strong></p>
+      <div id="file-name"></div>
+    </div>
+
+    <button class="detect-btn" id="detect-btn" disabled>
+      <div class="spinner" id="spinner"></div>
+      <span id="btn-text">🔍 Bắt đầu Detect</span>
+    </button>
+
+    <div class="error-banner" id="error-banner"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="stats-grid">
+      <div class="stat-card total">
+        <div class="num" id="stat-total">—</div>
+        <div class="label">Tổng số mẫu</div>
+      </div>
+      <div class="stat-card anom">
+        <div class="num" id="stat-anom">—</div>
+        <div class="label">Bất thường</div>
+      </div>
+      <div class="stat-card norm">
+        <div class="num" id="stat-norm">—</div>
+        <div class="label">Bình thường</div>
+      </div>
+    </div>
+
+    <div class="table-section">
+      <div class="table-header">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <h3>Kết quả phân tích</h3>
+          <span class="badge badge-anom" id="anom-badge" style="display:none"></span>
+          <span class="badge badge-trunc" id="trunc-badge" style="display:none">Hiển thị 2 000 hàng đầu</span>
+        </div>
+        <div class="filter-btns">
+          <button class="filter-btn active" data-filter="all">Tất cả</button>
+          <button class="filter-btn" data-filter="anomaly">Bất thường</button>
+          <button class="filter-btn" data-filter="normal">Bình thường</button>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Block ID</th>
+              <th>Score</th>
+              <th>Kết quả</th>
+            </tr>
+          </thead>
+          <tbody id="result-body">
+            <tr><td colspan="4" class="empty">Chưa có dữ liệu.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const fileNameEl = document.getElementById('file-name');
+  const detectBtn  = document.getElementById('detect-btn');
+  const btnText    = document.getElementById('btn-text');
+  const spinner    = document.getElementById('spinner');
+  const errorEl    = document.getElementById('error-banner');
+  const resultsEl  = document.getElementById('results');
+
+  let allRows = [];
+  let currentFilter = 'all';
+
+  // ── file selection ──────────────────────────────────────────
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) selectFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+  });
+
+  function selectFile(f) {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!['csv', 'npz'].includes(ext)) {
+      showError('Chỉ hỗ trợ file .csv và .npz.');
+      return;
+    }
+    fileNameEl.textContent = '✅ ' + f.name;
+    detectBtn.disabled = false;
+    hideError();
+    resultsEl.style.display = 'none';
+
+    // Transfer to real input if dropped
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    fileInput.files = dt.files;
+  }
+
+  // ── detect ──────────────────────────────────────────────────
+  detectBtn.addEventListener('click', async () => {
+    if (!fileInput.files.length) return;
+
+    setLoading(true);
+    hideError();
+    resultsEl.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+
+    try {
+      const res = await fetch('/detect', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showError(data.error || 'Lỗi không xác định từ server.');
+        return;
+      }
+      renderResults(data);
+    } catch (err) {
+      showError('Không thể kết nối với server: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  // ── filter buttons ──────────────────────────────────────────
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      renderTable();
+    });
+  });
+
+  // ── render ──────────────────────────────────────────────────
+  function renderResults(data) {
+    document.getElementById('stat-total').textContent = data.total.toLocaleString();
+    document.getElementById('stat-anom').textContent  = data.anomaly_count.toLocaleString();
+    document.getElementById('stat-norm').textContent  = data.normal_count.toLocaleString();
+
+    const anomBadge = document.getElementById('anom-badge');
+    if (data.anomaly_count > 0) {
+      anomBadge.textContent = data.anomaly_count + ' bất thường';
+      anomBadge.style.display = 'inline-block';
+    } else {
+      anomBadge.style.display = 'none';
+    }
+
+    document.getElementById('trunc-badge').style.display = data.truncated ? 'inline-block' : 'none';
+
+    allRows = data.rows;
+    currentFilter = 'all';
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.filter === 'all');
+    });
+    renderTable();
+    resultsEl.style.display = 'block';
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderTable() {
+    const body = document.getElementById('result-body');
+    const filtered = currentFilter === 'all'
+      ? allRows
+      : allRows.filter(r => r.label === currentFilter);
+
+    if (filtered.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">Không có dữ liệu phù hợp.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = filtered.map(r => {
+      const cls       = r.is_anomaly ? 'anomaly' : 'normal';
+      const labelHtml = r.is_anomaly
+        ? '<span class="label-badge">🔴 anomaly</span>'
+        : '<span class="label-badge">🟢 normal</span>';
+      const scoreCls  = r.is_anomaly ? 'score high' : 'score';
+      return `<tr class="${cls}">
+        <td class="row-num">${r.row}</td>
+        <td>${escHtml(r.block_id)}</td>
+        <td class="${scoreCls}">${r.score}</td>
+        <td>${labelHtml}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── helpers ─────────────────────────────────────────────────
+  function setLoading(on) {
+    detectBtn.disabled = on;
+    spinner.style.display = on ? 'block' : 'none';
+    btnText.textContent = on ? 'Đang phân tích…' : '🔍 Bắt đầu Detect';
+  }
+  function showError(msg) { errorEl.textContent = '❌ ' + msg; errorEl.style.display = 'block'; }
+  function hideError()    { errorEl.style.display = 'none'; }
+  function escHtml(s)     { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
