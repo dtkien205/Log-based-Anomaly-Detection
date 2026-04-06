@@ -25,4 +25,7 @@ data/
 output/
 *.npz
 *.pkl
-*.csv
+*.csv__pycache__/
+*.pyc
+.venv/
+*.rar
