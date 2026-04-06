@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log Anomaly Detection</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #21262d;
+      --border:      #30363d;
+      --accent:      #6366f1;
+      --accent-dark: #4f46e5;
+      --text:        #e6edf3;
+      --muted:       #8b949e;
+      --anomaly-bg:  rgba(239, 68, 68, 0.12);
+      --anomaly-fg:  #f87171;
+      --normal-fg:   #4ade80;
+      --card-total:  #6366f1;
+      --card-anom:   #ef4444;
+      --card-norm:   #22c55e;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ─── HEADER ─────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header svg { flex-shrink: 0; }
+    header h1  { font-size: 1.3rem; font-weight: 700; letter-spacing: .02em; }
+    header p   { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+
+    /* ─── MAIN LAYOUT ─────────────────────────── */
+    main {
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+    }
+
+    /* ─── UPLOAD CARD ─────────────────────────── */
+    .upload-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 36px 32px;
+    }
+    .upload-card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 20px; }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 42px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, .06);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    .drop-zone .icon { font-size: 2.6rem; margin-bottom: 10px; }
+    .drop-zone p   { color: var(--muted); font-size: .9rem; }
+    .drop-zone p span { color: var(--accent); font-weight: 600; }
+    #file-name {
+      margin-top: 12px;
+      font-size: .88rem;
+      color: var(--accent);
+      min-height: 1.3em;
+      word-break: break-all;
+    }
+
+    .detect-btn {
+      margin-top: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .03em;
+      transition: opacity .2s, transform .1s;
+    }
+    .detect-btn:hover   { opacity: .9; }
+    .detect-btn:active  { transform: scale(.98); }
+    .detect-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── ERROR BANNER ────────────────────────── */
+    .error-banner {
+      margin-top: 20px;
+      background: rgba(239,68,68,.12);
+      border: 1px solid rgba(239,68,68,.4);
+      border-radius: 8px;
+      padding: 14px 18px;
+      color: #f87171;
+      font-size: .9rem;
+      display: none;
+    }
+
+    /* ─── RESULTS ─────────────────────────────── */
+    #results { margin-top: 36px; display: none; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 20px;
+      text-align: center;
+      border-top: 3px solid;
+    }
+    .stat-card.total  { border-top-color: var(--card-total); }
+    .stat-card.anom   { border-top-color: var(--card-anom);  }
+    .stat-card.norm   { border-top-color: var(--card-norm);  }
+    .stat-card .num   { font-size: 2rem; font-weight: 700; }
+    .stat-card.total .num { color: var(--card-total); }
+    .stat-card.anom  .num { color: var(--card-anom);  }
+    .stat-card.norm  .num { color: var(--card-norm);  }
+    .stat-card .label { font-size: .82rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+
+    /* table wrapper */
+    .table-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .table-header h3 { font-size: .95rem; font-weight: 600; }
+    .badge {
+      font-size: .75rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    .badge-anom { background: rgba(239,68,68,.15); color: var(--anomaly-fg); }
+    .badge-trunc { background: rgba(99,102,241,.15); color: #a5b4fc; }
+
+    /* filter buttons */
+    .filter-btns { display: flex; gap: 8px; }
+    .filter-btn {
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      font-size: .8rem;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn.active {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(99,102,241,.1);
+    }
+
+    .table-scroll { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .88rem;
+    }
+    thead th {
+      background: var(--surface2);
+      padding: 11px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: .8rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody td { padding: 10px 14px; }
+
+    /* anomaly row highlight */
+    tbody tr.anomaly {
+      background: var(--anomaly-bg);
+    }
+    tbody tr.anomaly:hover { background: rgba(239,68,68,.18); }
+    tbody tr.anomaly .label-badge { color: var(--anomaly-fg); font-weight: 700; }
+    tbody tr.normal  .label-badge { color: var(--normal-fg);  }
+
+    .row-num { color: var(--muted); font-size: .82rem; }
+    .score   { font-variant-numeric: tabular-nums; }
+    .score.high { color: var(--anomaly-fg); }
+
+    /* empty state */
+    .empty { padding: 40px; text-align: center; color: var(--muted); font-size: .9rem; }
+
+    /* ─── PAGINATION ──────────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .page-btn {
+      min-width: 34px;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      font-size: .82rem;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .page-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(99,102,241,.1);
+    }
+    .page-btn.active {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+    }
+    .page-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .page-ellipsis { color: var(--muted); font-size: .85rem; padding: 0 4px; }
+
+    /* ─── POPUP MODAL ─────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      padding: 20px;
+      animation: fadeIn .15s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: slideUp .18s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-header {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-header h4 { font-size: 1rem; font-weight: 700; }
+    .modal-header .modal-subtitle { font-size: .82rem; color: var(--muted); margin-top: 3px; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1.4rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 2px;
+      flex-shrink: 0;
+      transition: color .15s;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body {
+      padding: 18px 22px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .meta-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .meta-item .meta-label { font-size: .73rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .meta-item .meta-value { font-size: .95rem; font-weight: 600; }
+    .meta-item.meta-anom .meta-value { color: var(--anomaly-fg); }
+    .meta-item.meta-norm .meta-value { color: var(--normal-fg); }
+    .events-label {
+      font-size: .8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 8px;
+    }
+    .events-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .event-chip {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: .82rem;
+      font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+      font-weight: 600;
+      border: 1px solid;
+      position: relative;
+      cursor: default;
+    }
+    .event-chip.ev-normal  { background: rgba(34,197,94,.1);  border-color: rgba(34,197,94,.3);  color: #4ade80; }
+    .event-chip.ev-anomaly { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.4);  color: #f87171; }
+    .event-chip.ev-missing { background: rgba(100,100,100,.08); border-color: rgba(100,100,100,.25); color: #6b7280; text-decoration: line-through; }
+    .events-empty { color: var(--muted); font-size: .88rem; }
+
+    /* ─── EVENT TOOLTIP ───────────────────────────── */
+    .event-chip[data-tooltip]::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 7px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e2430;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: .75rem;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-weight: 400;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 20;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .event-chip[data-tooltip]::before {
+      content: '';
+      position: absolute;
+      bottom: calc(100% + 1px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: var(--border);
+      pointer-events: none;
+      z-index: 20;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .event-chip[data-tooltip]:hover::after,
+    .event-chip[data-tooltip]:hover::before { opacity: 1; }
+    .block-interpretation {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 9px;
+      font-size: .88rem;
+      line-height: 1.6;
+    }
+    .block-interpretation.interp-anom {
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      color: #fca5a5;
+    }
+    .block-interpretation.interp-norm {
+      background: rgba(34,197,94,.08);
+      border: 1px solid rgba(34,197,94,.25);
+      color: #86efac;
+    }
+
+    /* row clickable */
+    tbody tr.clickable { cursor: pointer; }
+
+    /* responsive */
+    @media (max-width: 600px) {
+      header { padding: 14px 18px; }
+      main   { margin-top: 24px; padding: 0 14px 40px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .stat-card.norm { grid-column: span 2; }
+      .modal-meta { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header 
+  style="
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    padding: 16px 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  "
+>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="9" fill="#6366f1"/>
+    <path d="M10 18h16M10 12h10M10 24h12"
+          stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="27" cy="12" r="3" fill="#f87171"/>
+  </svg>
+
+  <div>
+    <h1 style="margin:0; color:white;">Log Anomaly Detection</h1>
+    <p style="margin:0; color:#94a3b8;">
+      Phát hiện bất thường trong log hệ thống bằng Machine Learning
+    </p>
+  </div>
+</header>
+
+<main>
+  <!-- Upload card -->
+  <div class="upload-card">
+    <h2>📂 Tải lên file log để phân tích</h2>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".csv,.npz" />
+      <div class="icon">📄</div>
+      <p>Kéo thả file vào đây hoặc <span>chọn file</span></p>
+      <p style="margin-top:6px;font-size:.8rem;">Hỗ trợ: <strong>.csv</strong> (structured / sequence) &amp; <strong>.npz</strong></p>
+      <div id="file-name"></div>
+    </div>
+
+    <button class="detect-btn" id="detect-btn" disabled>
+      <div class="spinner" id="spinner"></div>
+      <span id="btn-text">🔍 Bắt đầu Detect</span>
+    </button>
+
+    <div class="error-banner" id="error-banner"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="stats-grid">
+      <div class="stat-card total">
+        <div class="num" id="stat-total">—</div>
+        <div class="label">Tổng số mẫu</div>
+      </div>
+      <div class="stat-card anom">
+        <div class="num" id="stat-anom">—</div>
+        <div class="label">Bất thường</div>
+      </div>
+      <div class="stat-card norm">
+        <div class="num" id="stat-norm">—</div>
+        <div class="label">Bình thường</div>
+      </div>
+    </div>
+
+    <div class="table-section">
+      <div class="table-header">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <h3>Kết quả phân tích</h3>
+          <span class="badge badge-anom" id="anom-badge" style="display:none"></span>
+          <span class="badge badge-trunc" id="page-info-badge" style="display:none"></span>
+        </div>
+        <div class="filter-btns">
+          <button class="filter-btn active" data-filter="all">Tất cả</button>
+          <button class="filter-btn" data-filter="anomaly">Bất thường</button>
+          <button class="filter-btn" data-filter="normal">Bình thường</button>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Block ID</th>
+              <th>Score</th>
+              <th>Kết quả</th>
+            </tr>
+          </thead>
+          <tbody id="result-body">
+            <tr><td colspan="4" class="empty">Chưa có dữ liệu.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Pagination -->
+      <div class="pagination" id="pagination" style="display:none"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Block Detail Modal -->
+<div class="modal-overlay" id="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h4 id="modal-title">Chi tiết Block</h4>
+        <div class="modal-subtitle" id="modal-subtitle"></div>
+      </div>
+      <button class="modal-close" id="modal-close" aria-label="Đóng">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-meta" id="modal-meta"></div>
+      <!-- Shown only for anomalous blocks: reference normal sequence -->
+      <div id="modal-events-normal-section" style="display:none">
+        <div class="events-label" style="color:var(--normal-fg)">🟢 Chuỗi sự kiện bình thường (Normal Event Sequence)</div>
+        <div class="events-list" id="modal-events-normal" style="margin-bottom:14px"></div>
+      </div>
+      <!-- Block event sequence -->
+      <div class="events-label" id="modal-events-label">Chuỗi sự kiện (Event Sequence)</div>
+      <div class="events-list" id="modal-events"></div>
+      <div class="block-interpretation" id="modal-interpretation"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const fileNameEl = document.getElementById('file-name');
+  const detectBtn  = document.getElementById('detect-btn');
+  const btnText    = document.getElementById('btn-text');
+  const spinner    = document.getElementById('spinner');
+  const errorEl    = document.getElementById('error-banner');
+  const resultsEl  = document.getElementById('results');
+
+  const PAGE_SIZE = 2000;
+  let allRows = [];
+  let filteredRows = [];
+  let currentFilter = 'all';
+  let currentPage = 1;
+  let normalRepSequence = [];
+
+  // ── HDFS event descriptions ──────────────────────────────────
+  const EVENT_DESCRIPTIONS = {
+    'E2':  'Xác minh block thành công',
+    'E3':  'Gửi block đến client',
+    'E5':  'Bắt đầu nhận block',
+    'E6':  'Nhận block hoàn tất',
+    'E7':  'Lỗi khi ghi block',
+    'E8':  'PacketResponder bị ngắt',
+    'E9':  'Nhận block thành công',
+    'E10': 'Ngoại lệ PacketResponder',
+    'E11': 'PacketResponder kết thúc',
+    'E13': 'Nhận gói tin trống',
+    'E14': 'Lỗi trong quá trình nhận block',
+    'E15': 'Điều chỉnh offset file block',
+    'E16': 'Truyền block đến node khác',
+    'E18': 'Bắt đầu luồng truyền block',
+    'E21': 'Xóa block',
+    'E22': 'NameNode cấp phát block mới',
+    'E25': 'NameNode yêu cầu sao chép block',
+    'E26': 'Cập nhật blockMap NameNode',
+    'E27': 'Yêu cầu lưu block trùng lặp',
+  };
+
+  function getEventDesc(ev) {
+    return EVENT_DESCRIPTIONS[String(ev)] || null;
+  }
+
+  // ── compute representative normal sequence ───────────────────
+  function computeNormalRepSequence() {
+    const normalRows = allRows.filter(r => !r.is_anomaly);
+    if (normalRows.length === 0) return [];
+    const seqMap = {};
+    normalRows.forEach(r => {
+      const key = (r.events || []).join(',');
+      if (!seqMap[key]) seqMap[key] = { count: 0, events: r.events || [] };
+      seqMap[key].count++;
+    });
+    let best = null, bestCount = 0;
+    for (const k of Object.keys(seqMap)) {
+      if (seqMap[k].count > bestCount) {
+        bestCount = seqMap[k].count;
+        best = seqMap[k].events;
+      }
+    }
+    return best || [];
+  }
+
+  // ── render a list of event chips with optional diff ──────────
+  // mode: 'plain' | 'anomalous' (highlight extras) | 'normal-ref' (highlight missing)
+  function renderEventChips(events, refSet, mode) {
+    if (!events || events.length === 0) {
+      return '<span class="events-empty">Không có dữ liệu sự kiện.</span>';
+    }
+    return events.map(ev => {
+      const desc    = getEventDesc(ev);
+      const tooltip = desc ? ` data-tooltip="${escHtml(desc)}"` : '';
+      let cls = 'event-chip';
+      if (mode === 'anomalous' && refSet && !refSet.has(String(ev))) {
+        cls += ' ev-anomaly';
+      } else if (mode === 'normal-ref' && refSet && !refSet.has(String(ev))) {
+        cls += ' ev-missing';
+      } else {
+        cls += ' ev-normal';
+      }
+      return `<span class="${cls}"${tooltip}>${escHtml(String(ev))}</span>`;
+    }).join('');
+  }
+
+  // ── file selection ──────────────────────────────────────────
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) selectFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+  });
+
+  function selectFile(f) {
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!['csv', 'npz'].includes(ext)) {
+      showError('Chỉ hỗ trợ file .csv và .npz.');
+      return;
+    }
+    fileNameEl.textContent = '✅ ' + f.name;
+    detectBtn.disabled = false;
+    hideError();
+    resultsEl.style.display = 'none';
+
+    // Transfer to real input if dropped
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    fileInput.files = dt.files;
+  }
+
+  // ── detect ──────────────────────────────────────────────────
+  detectBtn.addEventListener('click', async () => {
+    if (!fileInput.files.length) return;
+
+    setLoading(true);
+    hideError();
+    resultsEl.style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+
+    try {
+      const res = await fetch('/detect', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showError(data.error || 'Lỗi không xác định từ server.');
+        return;
+      }
+      renderResults(data);
+    } catch (err) {
+      showError('Không thể kết nối với server: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  // ── filter buttons ──────────────────────────────────────────
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.filter;
+      currentPage = 1;
+      applyFilter();
+      renderTable();
+      renderPagination();
+    });
+  });
+
+  // ── render ──────────────────────────────────────────────────
+  function renderResults(data) {
+    document.getElementById('stat-total').textContent = data.total.toLocaleString();
+    document.getElementById('stat-anom').textContent  = data.anomaly_count.toLocaleString();
+    document.getElementById('stat-norm').textContent  = data.normal_count.toLocaleString();
+
+    const anomBadge = document.getElementById('anom-badge');
+    if (data.anomaly_count > 0) {
+      anomBadge.textContent = data.anomaly_count + ' bất thường';
+      anomBadge.style.display = 'inline-block';
+    } else {
+      anomBadge.style.display = 'none';
+    }
+
+    allRows = data.rows;
+    currentFilter = 'all';
+    currentPage = 1;
+    normalRepSequence = computeNormalRepSequence();
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.filter === 'all');
+    });
+    applyFilter();
+    renderTable();
+    renderPagination();
+    resultsEl.style.display = 'block';
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function applyFilter() {
+    filteredRows = currentFilter === 'all'
+      ? allRows
+      : allRows.filter(r => r.label === currentFilter);
+  }
+
+  function renderTable() {
+    const body = document.getElementById('result-body');
+
+    if (filteredRows.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">Không có dữ liệu phù hợp.</td></tr>';
+      return;
+    }
+
+    const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end   = Math.min(start + PAGE_SIZE, filteredRows.length);
+    const pageRows = filteredRows.slice(start, end);
+
+    body.innerHTML = pageRows.map(r => {
+      const cls       = r.is_anomaly ? 'anomaly' : 'normal';
+      const labelHtml = r.is_anomaly
+        ? '<span class="label-badge">🔴 anomaly</span>'
+        : '<span class="label-badge">🟢 normal</span>';
+      const scoreCls  = r.is_anomaly ? 'score high' : 'score';
+      return `<tr class="${cls} clickable" data-row="${r.row}">
+        <td class="row-num">${r.row}</td>
+        <td>${escHtml(r.block_id)}</td>
+        <td class="${scoreCls}">${r.score}</td>
+        <td>${labelHtml}</td>
+      </tr>`;
+    }).join('');
+
+    // attach click handlers for popup
+    body.querySelectorAll('tr.clickable').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const rowNum = parseInt(tr.dataset.row, 10);
+        const r = allRows.find(x => x.row === rowNum);
+        if (r) openModal(r);
+      });
+    });
+  }
+
+  // ── pagination ───────────────────────────────────────────────
+  function renderPagination() {
+    const paginationEl = document.getElementById('pagination');
+    const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
+
+    // Update page info badge
+    const badge = document.getElementById('page-info-badge');
+    if (filteredRows.length > PAGE_SIZE) {
+      badge.textContent = `Trang ${currentPage}/${totalPages} · ${filteredRows.length.toLocaleString()} hàng`;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    if (totalPages <= 1) {
+      paginationEl.style.display = 'none';
+      return;
+    }
+    paginationEl.style.display = 'flex';
+
+    const pages = getPageNumbers(currentPage, totalPages);
+    let html = `<button class="page-btn" id="prev-btn" ${currentPage === 1 ? 'disabled' : ''}>‹ Trước</button>`;
+
+    pages.forEach(p => {
+      if (p === '...') {
+        html += `<span class="page-ellipsis">…</span>`;
+      } else {
+        html += `<button class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+      }
+    });
+
+    html += `<button class="page-btn" id="next-btn" ${currentPage === totalPages ? 'disabled' : ''}>Sau ›</button>`;
+    paginationEl.innerHTML = html;
+
+    paginationEl.querySelector('#prev-btn').addEventListener('click', () => goToPage(currentPage - 1));
+    paginationEl.querySelector('#next-btn').addEventListener('click', () => goToPage(currentPage + 1));
+    paginationEl.querySelectorAll('[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => goToPage(parseInt(btn.dataset.page, 10)));
+    });
+  }
+
+  function goToPage(page) {
+    const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    renderTable();
+    renderPagination();
+    document.querySelector('.table-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function getPageNumbers(current, total) {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages = [];
+    if (current <= 4) {
+      for (let i = 1; i <= 5; i++) pages.push(i);
+      pages.push('...');
+      pages.push(total);
+    } else if (current >= total - 3) {
+      pages.push(1);
+      pages.push('...');
+      for (let i = total - 4; i <= total; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      pages.push('...');
+      for (let i = current - 1; i <= current + 1; i++) pages.push(i);
+      pages.push('...');
+      pages.push(total);
+    }
+    return pages;
+  }
+
+  // ── modal / popup ────────────────────────────────────────────
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalClose   = document.getElementById('modal-close');
+
+  modalClose.addEventListener('click', closeModal);
+  modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  function openModal(r) {
+    document.getElementById('modal-title').textContent = 'Block: ' + r.block_id;
+    document.getElementById('modal-subtitle').textContent =
+      r.is_anomaly ? '⚠️ Block này được phân loại là BẤT THƯỜNG' : '✅ Block này được phân loại là BÌNH THƯỜNG';
+
+    // Meta grid
+    const metaCls = r.is_anomaly ? 'meta-anom' : 'meta-norm';
+    document.getElementById('modal-meta').innerHTML = `
+      <div class="meta-item">
+        <div class="meta-label">Hàng #</div>
+        <div class="meta-value">${r.row}</div>
+      </div>
+      <div class="meta-item ${metaCls}">
+        <div class="meta-label">Kết quả</div>
+        <div class="meta-value">${r.is_anomaly ? '🔴 Anomaly' : '🟢 Normal'}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Block ID</div>
+        <div class="meta-value" style="word-break:break-all;font-size:.82rem">${escHtml(r.block_id)}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">Anomaly Score</div>
+        <div class="meta-value ${r.is_anomaly ? 'meta-anom' : 'meta-norm'}">${r.score}</div>
+      </div>`;
+
+    // Events
+    const eventsEl       = document.getElementById('modal-events');
+    const eventsLabel    = document.getElementById('modal-events-label');
+    const normalSection  = document.getElementById('modal-events-normal-section');
+    const normalEventsEl = document.getElementById('modal-events-normal');
+    const events = r.events || [];
+
+    if (r.is_anomaly) {
+      // Show normal reference section above the anomalous sequence
+      normalSection.style.display = '';
+      eventsLabel.textContent = '🔴 Chuỗi sự kiện bất thường (Anomalous Event Sequence)';
+      eventsLabel.style.color = 'var(--anomaly-fg)';
+
+      const anomSet   = new Set(events.map(String));
+      const normalSet = new Set(normalRepSequence.map(String));
+      normalEventsEl.innerHTML = renderEventChips(normalRepSequence, anomSet,   'normal-ref');
+      eventsEl.innerHTML       = renderEventChips(events,            normalSet, 'anomalous');
+    } else {
+      normalSection.style.display = 'none';
+      eventsLabel.textContent = 'Chuỗi sự kiện (Event Sequence)';
+      eventsLabel.style.color = '';
+      eventsEl.innerHTML = renderEventChips(events, null, 'plain');
+    }
+
+    // Interpretation
+    const interp = document.getElementById('modal-interpretation');
+    if (r.is_anomaly) {
+      interp.className = 'block-interpretation interp-anom';
+      interp.innerHTML = `<strong>⚠️ Phân tích:</strong> Block này chứa chuỗi sự kiện bất thường `
+        + `(${events.length} sự kiện). Mô hình phát hiện rằng thứ tự hoặc tần suất của các event `
+        + `trong block không khớp với hành vi bình thường, có thể là dấu hiệu của lỗi hệ thống, `
+        + `xâm nhập bất hợp pháp, hoặc sự cố phần cứng/mạng.`;
+    } else {
+      interp.className = 'block-interpretation interp-norm';
+      interp.innerHTML = `<strong>✅ Phân tích:</strong> Block này chứa chuỗi sự kiện bình thường `
+        + `(${events.length} sự kiện). Thứ tự và tần suất các event phù hợp với hành vi `
+        + `hoạt động thông thường của hệ thống.`;
+    }
+
+    modalOverlay.style.display = 'flex';
+    modalClose.focus();
+  }
+
+  function closeModal() {
+    modalOverlay.style.display = 'none';
+  }
+
+  // ── helpers ─────────────────────────────────────────────────
+  function setLoading(on) {
+    detectBtn.disabled = on;
+    spinner.style.display = on ? 'block' : 'none';
+    btnText.textContent = on ? 'Đang phân tích…' : '🔍 Bắt đầu Detect';
+  }
+  function showError(msg) { errorEl.textContent = '❌ ' + msg; errorEl.style.display = 'block'; }
+  function hideError()    { errorEl.style.display = 'none'; }
+  function escHtml(s)     { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
